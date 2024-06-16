@@ -1,0 +1,54 @@
+name: Build, Test and Publish to NuGet
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        dotnet-version: ['8.x']
+        nuget-version: ['latest']
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Setup .NET SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ matrix.dotnet-version }}
+        
+    - name: Setup NuGet
+      uses: NuGet/setup-nuget@v1.0.5
+      with:
+        nuget-version: ${{ matrix.nuget-version }}
+
+    - name: Extract version from tag
+      id: extract_version
+      run: echo "::set-output name=VERSION::${GITHUB_REF/refs\/tags\/v/}"
+
+    - name: Update version in csproj
+      run: |
+        VERSION=${{ steps.extract_version.outputs.VERSION }}
+        echo "Updating version to $VERSION"
+        sed -i 's/<Version>.*<\/Version>/<Version>'$VERSION'<\/Version>/' src/Shims/Shims.csproj
+
+    - name: Restore dependencies
+      run: dotnet restore src/Shims.sln
+
+    - name: Build
+      run: dotnet build --configuration Release src/Shims.sln
+
+    - name: Pack the library
+      run: dotnet pack src/Shims/Shims.csproj --configuration Release --no-build --output ./artifacts
+
+    - name: Publish to NuGet
+      env:
+        NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      run: |
+        echo "dotnet nuget push './artifacts/*.nupkg' --api-key $NUGET_API_KEY --source https://api.nuget.org/v3/index.json --skip-duplicate"
